@@ -72,11 +72,11 @@ class MPC():
         self.last_sol = None
         
         ## Create optimization problem
-        self.opistack           = Opti()
+        self.opistack           = Opti('conic')
         self.x                  = self.opistack.variable(self.x_n, N+1)
         self.u                  = self.opistack.variable(u_n, N)
         self.x_ref_slack        = self.opistack.variable(len(x_ref_states), N)
-        self.x_ref_parameter    = self.opistack.parameter(self.x_n, N+1)
+        self.x_ref_parameter    = self.opistack.parameter(len(x_ref_states), N+1)
         self.x_0_parameter      = self.opistack.parameter(self.x_n, 1)
         
         # # Add constraints
@@ -92,11 +92,18 @@ class MPC():
                 slack_var += 1
                 
         self.opistack.minimize(
-            sumsqr(self.x_ref_slack) + sumsqr(self.u) 
+            sumsqr(self.x_ref_slack) + 0*sumsqr(self.u) 
         )
-        
+        jit_options = {"flags": ["-O3"], "verbose": True}
+        # options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         solver_ipopt_opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.sb': 'yes'}
-        self.opistack.solver('ipopt', solver_ipopt_opts)
+        # solver_ipopt_opts = {
+        #     'ipopt.print_level': 0, 
+        #     'print_time': 0, 
+        #     'ipopt.sb': 'yes',
+        #     "jit": True, "compiler": "shell", "jit_options": jit_options
+        # }
+        self.opistack.solver('qpoases')
         
 
     def set_initial_state(self, x0):
@@ -114,13 +121,16 @@ class MPC():
     def solve(self, verbose=False):
         """ Solve the optimization problem. """
         if self.last_sol is not None:
+            # self.logger.info("Warm start!!")
             self.warm_start(self.last_sol)     
         start_time = time.time()
         self.last_sol = self.opistack.solve()
         solve_time = time.time() - start_time
         if verbose and self.logger is not None:
+            solve_hz = 1/solve_time
             self.logger.info("MPC solve time: {}".format(solve_time))
-        
+            self.logger.info("MPC solve frequency: {}".format(solve_hz))
+            # self.logger.info("COST : {}".format(self.last_sol.value(self.opistack.f)))
         x = self.last_sol.value(self.x)
         u = self.last_sol.value(self.u)
         

@@ -8,11 +8,11 @@ def generate_launch_description():
         Node(
             package     = 'crazyflie_mpc',
             namespace   = robot_name,
-            executable  ='simple_mpc_node',
-            name        ='simple_mpc_node',
+            executable  ='full_state_ctrl',
+            name        ='full_state_ctrl_node',
             parameters  = 
                 [{
-                    "use_sim_time": True,
+                    "use_sim_time": False,
                 }],
                 
         ),
