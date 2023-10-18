@@ -5,6 +5,7 @@ package_name = 'crazyflie_mpc'
 data_files = []
 data_files.append(('share/' + package_name + '/launch', ['launch/simple_mpc_launch.py']))
 data_files.append(('share/' + package_name + '/launch', ['launch/full_cmd_launch.py']))
+data_files.append(('share/' + package_name + '/launch', ['launch/mpc_launch.py']))
 
 data_files.append(('share/ament_index/resource_index/packages', ['resource/' + package_name]))
 data_files.append(('share/' + package_name, ['package.xml']))
@@ -26,7 +27,8 @@ setup(
     entry_points={
         'console_scripts': [
             'simple_mpc_node = crazyflie_mpc.simple_mpc_node:main',
-            'full_state_ctrl = crazyflie_mpc.full_state_ctrl:main'
+            'full_state_ctrl = crazyflie_mpc.full_state_ctrl:main',
+            'mpc_node = crazyflie_mpc.mpc_node:main'
         ],
         'launch.frontend.launch_extension': ['launch_ros = launch_ros']
     }
