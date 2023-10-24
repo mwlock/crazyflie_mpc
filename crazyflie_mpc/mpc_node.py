@@ -104,10 +104,10 @@ class SimpleMPC(Node):
         super().__init__('simple_mpc_controller')
         
         # Publishers and subscribers
-        self.odom_sub           = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
-        self.pose_sub           = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 10)
-        self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 10)
-        self.acc_z_sub          = self.create_subscription(LogDataGeneric, 'accel_z', self.acc_z_sub, 10)
+        self.odom_sub           = self.create_subscription(Odometry, 'odom', self.odom_callback, 1)
+        self.pose_sub           = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
+        self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
+        self.acc_z_sub          = self.create_subscription(LogDataGeneric, 'accel_z', self.acc_z_sub, 1)
 
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
         self.path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
@@ -289,7 +289,7 @@ class SimpleMPC(Node):
         # Follow circle after 10 seconds
         if self.start_time !=-1:
             time_since_start = self.time() - self.start_time
-            if time_since_start >=  10:
+            if time_since_start >=  10 and time_since_start <  20 :
 
                 # Create reference for x and y with N steps look ahead, with circle defined by sin(x * 2 * pi * (1/5))
                 time_references = [(time_since_start + i*self.dt) for i in range(self.N)]
@@ -301,13 +301,9 @@ class SimpleMPC(Node):
                 z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/5))) for t in time_references]
 
                 ref_pose = PoseStamped()
-
-                self.logger.info(f"x_ref[0] {x_ref[0]}")
-
                 ref_pose.pose.position.x = x_ref[0]
                 ref_pose.pose.position.y = y_ref[0]
                 ref_pose.pose.position.z = z_ref[0]
-
                 self.ref_pub.publish(ref_pose)    
 
                 self.mpc_planner.set_reference_trajectory(
@@ -324,6 +320,12 @@ class SimpleMPC(Node):
                         x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(x_ref, y_ref, z_ref))),
                         x_ref_f = np.array([x_ref[-1], y_ref[-1], z_ref[-1],0,0,0])
                     )
+                
+                ref_pose = PoseStamped()
+                ref_pose.pose.position.x = x_ref[0]
+                ref_pose.pose.position.y = y_ref[0]
+                ref_pose.pose.position.z = z_ref[0]
+                self.ref_pub.publish(ref_pose) 
 
         
         # Round x to 5th decimal
@@ -339,7 +341,7 @@ class SimpleMPC(Node):
         self.mpc_planner.set_initial_state(x)
         # self.mpc_planner.set_reference_trajectory(x_ref)
 
-        x_pred,u, solve_time = self.mpc_planner.solve(verbose=True)
+        x_pred,u, solve_time = self.mpc_planner.solve(verbose=False)
         self.last_u = u
         if solve_time >= self.dt:
             self.logger.warn(f"========================Solve time exceeds control rate {1/solve_time} ========================")
