@@ -11,22 +11,26 @@ import matplotlib.pyplot as plt
 FREQ = 40
 dt = 1/FREQ
 
-Ac = ca.DM.zeros(6, 6)
-Bc = ca.DM.zeros(6, 3)
+Ac = ca.DM.zeros(7, 7)
+Bc = ca.DM.zeros(7, 3)
 
 Ac[0, 3] = 1
 Ac[1, 4] = 1
 Ac[2, 5] = 1
 
+Ac[5, 5] = 1 # disturbance
+
+
 Bc[3, 0] = 1
 Bc[4, 1] = 1
 Bc[5, 2] = 1
 
-continous_system = control.StateSpace(Ac, Bc, ca.DM.eye(6), ca.DM.zeros(6, 3))
+continous_system = control.StateSpace(Ac, Bc, ca.DM.eye(7), ca.DM.zeros(7, 3))
 discrete_system = continous_system.sample(dt)
 
-# print(f"continous_system:\n {continous_system}")
-# print(f"discrete_system:\n {discrete_system}")
+
+print(f"continous_system:\n {continous_system}")
+print(f"discrete_system:\n {discrete_system}")
 
 Ad = sparse.csc_matrix(discrete_system.A)
 Bd = sparse.csc_matrix(discrete_system.B)
@@ -53,17 +57,17 @@ fz_max = 1
 
 umin = np.array([-fx_max, -fy_max, -fz_max])
 umax = np.array([ fx_max,  fy_max,  fz_max])
-xmin = np.array([-x_max, -y_max, z_min, -vx_max, -vy_max, -vz_max])
-xmax = np.array([ x_max,  y_max, z_max,  vx_max,  vy_max,  vz_max])
+xmin = np.array([-x_max, -y_max, z_min, -vx_max, -vy_max, -vz_max, -10])
+xmax = np.array([ x_max,  y_max, z_max,  vx_max,  vy_max,  vz_max,  10])
 
 # # Objective function
-Q = sparse.diags([1., 1., 1., 0., 0., 0.])
+Q = sparse.diags([1., 1., 1., 0., 0., 0., 0.])
 QN = Q
 R = 0.1*sparse.eye(3)
 
 # Initial and reference states
-x0 = np.zeros(6)
-xr = np.array([0., 0., 1., 0., 0., 0.])
+x0 = np.array([0., 0., 0., 0., 0., 0., -1])
+xr = np.array([0., 0., 1., 0., 0., 0., 0.])
 
 # Prediction horizon
 N = 100
@@ -136,6 +140,7 @@ plt.subplot(2, 1, 1)
 plt.plot(sim_results[0, :], label='x')
 plt.plot(sim_results[1, :], label='y')
 plt.plot(sim_results[2, :], label='z')
+plt.plot(sim_results[6, :], label='disturbance')
 plt.legend()
 plt.subplot(2, 1, 2)
 plt.plot(sim_results[3, :], label='vx')

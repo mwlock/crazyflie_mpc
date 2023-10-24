@@ -25,9 +25,30 @@ from crazyflie_interfaces.msg import Position
 from crazyflie_interfaces.srv import Takeoff
 from crazyflie_interfaces.srv import Land
 
-FREQUENCY = 25
-THRUST_OFFSET = 36000
-# THRUST_OFFSET = 49000
+from copy import deepcopy
+
+TARGET_HEIGHT = 0.5
+FREQUENCY = 20
+
+THRUST_OFFSET = 38500     # small crazyflie
+MASS = 0.034              # small crazyflie
+
+# THRUST_OFFSET = 43000       # big crazyflie
+# MASS = 0.044                # big crazyflie
+
+# THRUST_OFFSET = 42000       # big crazyflie
+# MASS = 0.054                # big crazyflie
+
+
+# THRUST_OFFSET = 43000
+
+# THRUST_OFFSET = 49000   # simulation
+# MASS = 0.065            # simulation
+
+
+# MASS = 0.044
+# MASS = 0.034
+
 
 class SimpleMPC(Node):
     
@@ -107,8 +128,9 @@ class SimpleMPC(Node):
         self.logger.info("Initializing MPC controller.")
         
         # self.mass   = 0.045
-        self.mass   = 0.034
+        # self.mass   = 0.034
         # self.mass = 0.0288
+        self.mass = MASS
         self.g      = 9.81
         self.dt     = 1.0 / FREQUENCY
         self.init_model()   
@@ -124,10 +146,10 @@ class SimpleMPC(Node):
         
         self.init_mpc_planner()    
         self.logger.info("MPC controller initialized.")
+        self.target_height = TARGET_HEIGHT
         
         # Takeoff
         # self.logger.info("Taking off.")
-        self.target_height = 0.5
         # self.takeoff(self.target_height, duration=2.0)
         # self.sleep(self.target_height+2.0)
         
@@ -169,9 +191,9 @@ class SimpleMPC(Node):
         
         x_lim = 5
         y_lim = 5
-        z_lim = 3
-        v_lim = 1
-        u_lim_1 = 0.5
+        z_lim = 5
+        v_lim = 3
+        u_lim_1 = 1
         u_lim = 1
         
         self.x_upper_bound = ca.DM([x_lim, y_lim, z_lim, v_lim, v_lim, v_lim])
@@ -219,22 +241,27 @@ class SimpleMPC(Node):
     def pose_callback(self, msg : PoseStamped):
         """Callback for the pose subscriber."""
         # self.logger.info("Got pose message.")
-        self.last_pose = msg
         
         self.x0 = msg.pose.position.x
         self.y0 = msg.pose.position.y
         self.z0 = msg.pose.position.z
-        
-        dt = (msg.header.stamp.sec - self.last_pose.header.stamp.sec)
-        if dt != 0:
-            self.xv0 = (msg.pose.position.x - self.last_pose.pose.position.x)/dt
-            self.yv0 = (msg.pose.position.y - self.last_pose.pose.position.y)/dt
-            self.zv0 = (msg.pose.position.z - self.last_pose.pose.position.z)/dt
+
+        if self.last_pose is not None:
+            
+            dt = (msg.header.stamp.nanosec - self.last_pose.header.stamp.nanosec)/1e9
+            if dt != 0:
+                self.xv0 = (msg.pose.position.x - self.last_pose.pose.position.x)/dt
+                self.yv0 = (msg.pose.position.y - self.last_pose.pose.position.y)/dt
+                self.zv0 = (msg.pose.position.z - self.last_pose.pose.position.z)/dt
+            else:
+                self.logger.warn(f"No velicity avaiable, dt = {dt}")
             
         self.quaternion_x = msg.pose.orientation.x
         self.quaternion_y = msg.pose.orientation.y
         self.quaternion_z = msg.pose.orientation.z
         self.quaternion_w = msg.pose.orientation.w
+
+        self.last_pose = deepcopy(msg)
         
     def publish_predicted_path(self,x):
         
@@ -278,15 +305,21 @@ class SimpleMPC(Node):
             self.yv0,
             self.zv0
         ])
+
+        # Round x to 4th decimal
+        x = np.around(x, decimals=4)
         
         self.logger.info(f"x {x}")
         
-        x_ref = np.array([0.0, 0.0, self.target_height])
+        x_ref = np.array([self.x0, self.y0, self.target_height])
         x_ref = np.tile(x_ref, (self.mpc_planner.N+1, 1)).T
         
         self.mpc_planner.set_initial_state(x)
         self.mpc_planner.set_reference_trajectory(x_ref)
-        x_pred,u = self.mpc_planner.solve(verbose=False)
+        x_pred,u, solve_time = self.mpc_planner.solve(verbose=True)
+
+        if solve_time >= self.dt:
+            self.logger.warn(f"========================Solve time exceeds control rate {1/solve_time} ========================")
         
         self.publish_predicted_path(x_pred)
                
@@ -303,28 +336,33 @@ class SimpleMPC(Node):
         roll    = euler[0]
         pitch   = euler[1]
         yaw     = euler[2]
+
+        self.logger.info(f"u{u[:,0]}")
         
-        thrust_des, pitch_des, roll_des = self.acc2TRP([u[0,0],u[1,0],u[2,0]], yaw)
+        thrust_des, pitch_des, roll_des = self.acc2TRP([u[0,0],u[1,0],u[2,0]*1], yaw)
         thrust_des = self.T2cmd(thrust_des) 
         
         # roll_des, pitch_des, thrust_des = self.acceleration_to_drone_command(u[:,0])
         
-        x_next = x_pred[0,1]
-        y_next = x_pred[1,1]
-        z_next = x_pred[2,1]
-        yaw_next = 0
-        self.cmd_position_pub(x_next,y_next,z_next,yaw_next)
+        # x_next = x_pred[0,1]
+        # y_next = x_pred[1,1]
+        # z_next = x_pred[2,1]
+        # yaw_next = 0
+        # self.cmd_position_pub(x_next,y_next,z_next,yaw_next)
         
-        # twist  = Twist()
-        # # twist.linear.x = pitch_des
-        # # twist.linear.y = roll_des
-        # twist.linear.x = 0.0
-        # twist.linear.y = 0.0
-        # twist.angular.z = 0.0
-        # twist.linear.z = thrust_des  
+        twist  = Twist()
+        # twist.linear.x = pitch_des
+        # twist.linear.y = roll_des
+        twist.linear.x = 0.0
+        twist.linear.y = 0.0
+        twist.angular.z = 0.0
+        twist.linear.z = thrust_des  
+        # twist.linear.z = 42400.0
+
+        self.logger.info(f"thrust_des {thrust_des}")
         
         # # self.logger.info(f" roll_des {roll_des} pitch_des {pitch_des} thrust_des {thrust_des}")
-        # self.cmd_vel_pub.publish(twist)
+        self.cmd_vel_pub.publish(twist)
         
         # self.logger.info(f"z {x[2:]}")
         # self.logger.info(f"z_dot {x[5:]}")

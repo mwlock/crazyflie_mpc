@@ -92,7 +92,7 @@ class MPC():
                 slack_var += 1
                 
         self.opistack.minimize(
-            sumsqr(self.x_ref_slack) + 0*sumsqr(self.u) 
+            sumsqr(self.x_ref_slack) + 0.01*sumsqr(self.u) 
         )
         jit_options = {"flags": ["-O3"], "verbose": True}
         # options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
@@ -134,4 +134,4 @@ class MPC():
         x = self.last_sol.value(self.x)
         u = self.last_sol.value(self.u)
         
-        return x, u
+        return x, u, solve_time

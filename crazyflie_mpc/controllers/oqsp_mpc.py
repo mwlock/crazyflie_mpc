@@ -34,12 +34,12 @@ class oqsp_MPC():
             y_max = 5.0,
             z_min = -10,
             z_max = 10,
-            vx_max = 5.0,
-            vy_max = 5.0,
-            vz_max = 5.0,
-            fx_max = 0.5,
-            fy_max = 0.5,
-            fz_max = 0.5,
+            vx_max = 2.0,
+            vy_max = 2.0,
+            vz_max = 2.0,
+            fx_max = 1.0,
+            fy_max = 1.0,
+            fz_max = 1.0,
             N = 100,
             logger = None
         ) -> None:
@@ -51,19 +51,25 @@ class oqsp_MPC():
         self.Ac = ca.DM.zeros(6, 6)
         self.Bc = ca.DM.zeros(6, 3)
 
-        self.Ac[0, 3] = 1
-        self.Ac[1, 4] = 1
-        self.Ac[2, 5] = 1
+        self.Ac[0, 3] = 1   # x
+        self.Ac[1, 4] = 1   # y
+        self.Ac[2, 5] = 1   # z
 
-        self.Bc[3, 0] = 1
-        self.Bc[4, 1] = 1
-        self.Bc[5, 2] = 1
+        # self.Ac[5, 5] = 1 # disturbance
 
-        continous_system = control.StateSpace(self.Ac, self.Bc, ca.DM.eye(6), ca.DM.zeros(6, 3))
+
+        self.Bc[3, 0] = 1   # vx 
+        self.Bc[4, 1] = 1   # vy
+        self.Bc[5, 2] = 1   # vz
+
+
+        continous_system     = control.StateSpace(self.Ac, self.Bc, ca.DM.eye(6), ca.DM.zeros(6, 3))
         self.discrete_system = continous_system.sample(self.dt)
 
         # print(f"continous_system:\n {continous_system}")
         # print(f"discrete_system:\n {discrete_system}")
+        # print(f"discrete_system_disturbance:\n {discrete_system_disturbance}")
+
 
         self.Ad = sparse.csc_matrix(self.discrete_system.A)
         self.Bd = sparse.csc_matrix(self.discrete_system.B)
@@ -90,7 +96,8 @@ class oqsp_MPC():
 
         # Initial and reference states
         x0 = np.zeros(6)
-        xr = np.array([0., 0., 1., 0., 0., 0.])
+        xr = np.array([0., 0., 0.5, 0., 0., 0.])
+        xr_seq = np.kron(np.ones(N), -Q@xr)
 
         self.x0 = x0
 
@@ -103,7 +110,7 @@ class oqsp_MPC():
                             sparse.kron(sparse.eye(N), R)], format='csc')
 
         # - linear objective
-        q = np.hstack([np.kron(np.ones(N), -Q@xr), -QN@xr, np.zeros(N*nu)])
+        q = np.hstack([xr_seq, -QN@xr, np.zeros(N*nu)])
 
         # - linear dynamics
         Ax = sparse.kron(sparse.eye(N+1),-sparse.eye(self.nx)) + sparse.kron(sparse.eye(N+1, k=-1), self.Ad)
@@ -131,6 +138,16 @@ class oqsp_MPC():
             warm_start=True,
             verbose=False
             )
+        
+    def set_reference_trajectory(self, x_ref, x_ref_f):
+
+        # Objective function
+        Q = sparse.diags([1., 1., 1., 0., 0., 0.])
+        QN = Q
+
+        xr_seq = np.hstack( [np.kron(np.ones(1), -Q@xr) for xr in x_ref])
+        q = np.hstack([xr_seq, -QN@x_ref_f, np.zeros(self.N*self.nu)])
+        self.prob.update(q=q)
     
     def set_initial_state(self, x0):
         """ Set the initial state of the system. """
@@ -139,11 +156,6 @@ class oqsp_MPC():
         self.u[:self.nx] = -x0
         self.prob.update(l=self.l, u=self.u)
 
-    def set_reference_trajectory(self, x_ref):
-        """ Set the reference trajectory. """
-        # self.opistack.set_value(self.x_ref_parameter, x_ref)
-        raise NotImplementedError
-    
     def solve(self, verbose=False):
         """ Solve the optimization problem. """
         
