@@ -242,12 +242,12 @@ class SimpleMPC(Node):
 
                 # Create reference for x and y with N steps look ahead, with circle defined by sin(x * 2 * pi * (1/5))
                 time_references = [(time_since_start + i*self.dt) for i in range(self.N)]
-                x_ref = [ 0.0 for i in range(self.N)]
-                y_ref = [ 0.0 for i in range(self.N)]
-                # x_ref = [(0.5*math.sin(t*2*math.pi*(1/10))) for t in time_references]
-                # y_ref = [(0.5*math.cos(t*2*math.pi*(1/10))) for t in time_references]
-                # z_ref = [ self.target_height for i in range(self.N)]
-                z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/5))) for t in time_references]
+                # x_ref = [ 0.0 for i in range(self.N)]
+                # y_ref = [ 0.0 for i in range(self.N)]
+                x_ref = [(0.5*math.sin(t*2*math.pi*(1/10))) for t in time_references]
+                y_ref = [(0.5*math.cos(t*2*math.pi*(1/10))) for t in time_references]
+                z_ref = [ self.target_height for i in range(self.N)]
+                # z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/5))) for t in time_references]
 
                 ref_pose = PoseStamped()
                 ref_pose.pose.position.x = x_ref[0]
@@ -302,10 +302,7 @@ class SimpleMPC(Node):
             return
         
         euler = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
-
-        roll    = euler[0]
-        pitch   = euler[1]
-        yaw     = euler[2]
+        roll, pitch, yaw   = euler
 
         thrust_des, roll_des, pitch_des = acc2TRP([u[0],u[1],u[2]], yaw, self.mass, THRUST_OFFSET)
         thrust_des = T2cmd(thrust_des) 
