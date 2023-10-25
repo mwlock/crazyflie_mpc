@@ -1,4 +1,27 @@
+# MIT License
+
+# Copyright (c) 2023 Matthew Lock
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from crazyflie_mpc.controllers.oqsp_mpc import oqsp_MPC
+from crazyflie_mpc.controller_utils import *
 
 import rclpy
 from rclpy.node import Node
@@ -75,39 +98,13 @@ class SimpleMPC(Node):
         req.height = targetHeight
         req.duration = Duration(seconds=duration).to_msg()
         self.land_client.call_async(req)
-        
-    def TRP2acc(self,TRP, psi):
-        """
-        Thrust, Roll, Pitch Command to desired accelerations
-        where T is already in [N] and angles in [rad]
-        """
-        T = TRP[0]
-        phi = TRP[1]
-        theta = TRP[2]
-        ax = self.g * (sin(psi) * phi + cos(psi) * theta)
-        ay = self.g * (-cos(psi) * phi + sin(psi) * theta)
-        az = T / self.mass
-        return np.array([ax, ay, az])
-    
-    def acc2TRP(self,a, psi):
-        """
-        desired accelerations in global frame to Thrust, Roll, Pitch command
-        """
-        
-        T = self.mass * a[2] + self.cmd2T(THRUST_OFFSET)
-        phi = (a[0] * sin(psi) - a[1] * cos(psi)) / self.g
-        theta = (a[0] * cos(psi) + a[1] * sin(psi)) / self.g
-        
-        return np.array([T, phi, theta])
 
     def __init__(self):
         super().__init__('simple_mpc_controller')
         
         # Publishers and subscribers
-        self.odom_sub           = self.create_subscription(Odometry, 'odom', self.odom_callback, 1)
         self.pose_sub           = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
         self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
-        self.acc_z_sub          = self.create_subscription(LogDataGeneric, 'accel_z', self.acc_z_sub, 1)
 
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
         self.path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
@@ -134,15 +131,6 @@ class SimpleMPC(Node):
         self.g      = 9.81
         self.dt     = 1.0 / FREQUENCY
         self.N      = 100
-        
-        # Thrust mapping: Force --> PWM value (inverse mapping from system ID paper)
-        a2 = 2.130295 * 1e-11
-        a1 = 1.032633 * 1e-6
-        a0 = 5.484560 * 1e-4
-        self.cmd2T = lambda cmd: 4 * (a2 * (cmd) ** 2 + a1 * (cmd) + a0)
-        self.T2cmd = lambda T: (- (a1 / (2 * a2)) + math.sqrt(a1**2 / (4 * a2**2) - (a0 - (max(0, T) / 4)) / a2))
-        
-        self.is_low_level_flight_active = False
         
         self.init_mpc_planner()    
         self.logger.info("MPC controller initialized.")
@@ -179,26 +167,6 @@ class SimpleMPC(Node):
             logger=self.logger
         )
         
-        
-    def odom_callback(self, msg : Odometry):
-        """Callback for the odometry subscriber."""
-        self.last_odom = msg
-        # self.logger.info("Got odometry message.")      
-        
-        self.x0     = msg.pose.pose.position.x
-        self.y0     = msg.pose.pose.position.y
-        self.z0     = msg.pose.pose.position.z
-        self.xv0    = msg.twist.twist.linear.x
-        self.yv0    = msg.twist.twist.linear.y
-        self.zv0    = msg.twist.twist.linear.z
-        
-        self.quaternion_x = msg.pose.pose.orientation.x
-        self.quaternion_y = msg.pose.pose.orientation.y
-        self.quaternion_z = msg.pose.pose.orientation.z
-        self.quaternion_w = msg.pose.pose.orientation.w
-
-        self.ready_to_solve = True
-        
     def pose_callback(self, msg : PoseStamped):
         """Callback for the pose subscriber."""
         # self.logger.info("Got pose message.")
@@ -207,17 +175,6 @@ class SimpleMPC(Node):
         self.y0 = msg.pose.position.y
         self.z0 = msg.pose.position.z
 
-        # if self.last_pose is not None:
-            
-        #     dt = (msg.header.stamp.nanosec - self.last_pose.header.stamp.nanosec)/1e9
-        #     if dt != 0:
-        #         self.xv0 = (msg.pose.position.x - self.last_pose.pose.position.x)/dt
-        #         self.yv0 = (msg.pose.position.y - self.last_pose.pose.position.y)/dt
-        #         self.zv0 = (msg.pose.position.z - self.last_pose.pose.position.z)/dt
-        #         self.ready_to_solve = True
-        #     else:
-        #         self.logger.warn(f"No velicity avaiable, dt = {dt}")
-            
         self.quaternion_x = msg.pose.orientation.x
         self.quaternion_y = msg.pose.orientation.y
         self.quaternion_z = msg.pose.orientation.z
@@ -232,9 +189,6 @@ class SimpleMPC(Node):
         self.zv0 = msg.values[2]
         self.ready_to_solve = True
 
-    def acc_z_sub(self, msg : LogDataGeneric):
-        self.az0 = (msg.values[0] - self.g*1000) / 1000
-        
     def publish_predicted_path(self,x):
         
         path_msg = Path()
@@ -271,11 +225,6 @@ class SimpleMPC(Node):
         if self.start_time ==-1:
             self.start_time = self.time()
 
-        # d = 0
-        # if self.last_u is not None:
-        #     d = self.last_u[2] - self.az0
-        #     self.logger.info(f"disturbance = {d}")
-         
         # Get current state
         x = np.array([
             self.x0,
@@ -327,19 +276,11 @@ class SimpleMPC(Node):
                 ref_pose.pose.position.z = z_ref[0]
                 self.ref_pub.publish(ref_pose) 
 
-        
-        # Round x to 5th decimal
-        # x = np.around(x, decimals=5)
-
         if not self.ready_to_solve:
             self.logger.warn("Not ready to solve!")
             return
         
-        # x_ref = np.array([self.x0, self.y0, self.target_height])
-        # x_ref = np.tile(x_ref, (self.mpc_planner.N+1, 1)).T
-        
         self.mpc_planner.set_initial_state(x)
-        # self.mpc_planner.set_reference_trajectory(x_ref)
 
         x_pred,u, solve_time = self.mpc_planner.solve(verbose=False)
         self.last_u = u
@@ -360,8 +301,6 @@ class SimpleMPC(Node):
             self.logger.info(f"Unlocked counter {self.unlocked_counter}")
             return
         
-        # self.logger.info(f"u {u}")
-        
         euler = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
 
         roll    = euler[0]
@@ -371,36 +310,15 @@ class SimpleMPC(Node):
         thrust_des, roll_des, pitch_des = self.acc2TRP([u[0],u[1],u[2]], yaw)
         thrust_des = self.T2cmd(thrust_des) 
         
-        # roll_des, pitch_des, thrust_des = self.acceleration_to_drone_command(u)
-        
-        # # x_next = x_pred[0,1]
-        # # y_next = x_pred[1,1]
-        # # z_next = x_pred[2,1]
-        # # yaw_next = 0
-        # # self.cmd_position_pub(x_next,y_next,z_next,yaw_next)
-
         roll_des    = math.degrees(roll_des)
         pitch_des   = math.degrees(pitch_des)
         
         twist  = Twist()
         twist.linear.x = -pitch_des
         twist.linear.y = roll_des
-        # twist.linear.x = 0.0
-        # twist.linear.y = 0.0
         twist.angular.z = 0.0
         twist.linear.z = thrust_des  
-        # # twist.linear.z = 42400.0
-
-        # self.logger.info(f"thrust_des {thrust_des}")
-        
-        # self.logger.info(f" roll_des {roll_des} pitch_des {pitch_des} thrust_des {thrust_des}")
         self.cmd_vel_pub.publish(twist)
-        
-        # # self.logger.info(f"z {x[2:]}")
-        # # self.logger.info(f"z_dot {x[5:]}")
-        # # self.logger.info(f"u {u[2:]}")
-        
-        # # Extract the first input
         
     def emergency_stop(self):
         
@@ -410,60 +328,6 @@ class SimpleMPC(Node):
         twist.angular.z = 0.0
         twist.linear.z = 0.0
         self.cmd_vel_pub.publish(twist)
-        
-    def full_speed(self):
-        
-        twist  = Twist()
-        twist.linear.x = 0.0
-        twist.linear.y = 0.0
-        twist.angular.z = 0.0
-        twist.linear.z = 5000.0
-        self.cmd_vel_pub.publish(twist)
-        
-    def thrust_to_pwn(self, thrust):
-        
-        # F/4 = 2.130295e-11 * PWM^2 + 1.032633e-6 * PWM + 5.484560e-4
-        # Solve quadratic equation for PWM with F = thrust
-        a = 2.130295e-11
-        b = 1.032633e-6
-        c = 5.484560e-4 - thrust/4
-        
-        # a,b,c = [ 1.71479058e-09,  8.80284482e-05, -2.21152097e-01 - thrust]
-        
-        PWM = (-b + np.sqrt(b**2 - 4*a*c))/(2*a)
-        PWM = max(0.0, PWM)
-        PWM = min(65535.0, PWM)
-        
-        # a2 = 2.130295 * 1e-11
-        # a1 = 1.032633 * 1e-6
-        # a0 = 5.484560 * 1e-4
-        
-        # self.T2cmd = lambda T: (- (a1 / (2 * a2)) + np.sqrt(a1**2 / (4 * a2**2) - (a0 - (max(0, T) / 4)) / a2))
-        
-        return PWM
-        
-    def acceleration_to_drone_command(self, acc):
-        """Convert acceleration to drone command."""
-        
-        euler = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
-
-        roll    = euler[0]
-        pitch   = euler[1]
-        yaw     = euler[2]
-        
-        # self.logger.info(f"acc {acc}")
-        
-        roll_des    = 1/self.g * (acc[0]*np.sin(yaw) - acc[1]*np.cos(yaw))
-        pitch_des   = 1/self.g * (acc[0]*np.cos(yaw) + acc[1]*np.sin(yaw))
-        thrust_des  = self.mass * (acc[2] + self.g)
-        
-        roll_des = math.degrees(roll_des)
-        pitch_des = math.degrees(pitch_des)
-        thrust_des = self.thrust_to_pwn(thrust_des)
-        
-        # self.logger.info(f"roll_des {roll_des} pitch_des {pitch_des} thrust_des {thrust_des}")
-        
-        return roll_des, pitch_des, thrust_des
     
 def main(args=None):
     
