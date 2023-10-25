@@ -360,7 +360,7 @@ class SimpleMPC(Node):
             self.logger.info(f"Unlocked counter {self.unlocked_counter}")
             return
         
-        self.logger.info(f"u {u}")
+        # self.logger.info(f"u {u}")
         
         euler = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
 
