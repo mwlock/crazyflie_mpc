@@ -307,8 +307,8 @@ class SimpleMPC(Node):
         pitch   = euler[1]
         yaw     = euler[2]
 
-        thrust_des, roll_des, pitch_des = self.acc2TRP([u[0],u[1],u[2]], yaw)
-        thrust_des = self.T2cmd(thrust_des) 
+        thrust_des, roll_des, pitch_des = acc2TRP([u[0],u[1],u[2]], yaw, self.mass, THRUST_OFFSET)
+        thrust_des = T2cmd(thrust_des) 
         
         roll_des    = math.degrees(roll_des)
         pitch_des   = math.degrees(pitch_des)
