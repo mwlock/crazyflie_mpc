@@ -59,14 +59,20 @@ TARGET_HEIGHT = 0.5
 FREQUENCY = 40
 
 # THRUST_OFFSET = 38500     # small crazyflie
-# MASS = 0.034              # small crazyflie
+# MASS = 0.038              # small crazyflie
 
-THRUST_OFFSET = 42000       # big crazyflie
-MASS = 0.054                # big crazyflie
+# THRUST_OFFSET = 42000       # big crazyflie
+# MASS = 0.054                # big crazyflie
+
+THRUST_OFFSET = 49200       # big crazyflie with mocap deck
+MASS = 0.074                # big crazyflie with mocap deck
 
 # THRUST_OFFSET = 38500   # simulation
 # THRUST_OFFSET = 49000   # simulation
 # MASS = 0.04            # simulation
+
+REFERENCE_FOLLOWING_TIME = 10.0
+LAND_TIME = 20.0
 
 
 class SimpleMPC(Node):
@@ -238,7 +244,7 @@ class SimpleMPC(Node):
         # Follow circle after 10 seconds
         if self.start_time !=-1:
             time_since_start = self.time() - self.start_time
-            if time_since_start >=  10 and time_since_start <  20 :
+            if time_since_start >=  REFERENCE_FOLLOWING_TIME and time_since_start <  LAND_TIME :
 
                 # Create reference for x and y with N steps look ahead, with circle defined by sin(x * 2 * pi * (1/5))
                 time_references = [(time_since_start + i*self.dt) for i in range(self.N)]
@@ -260,7 +266,7 @@ class SimpleMPC(Node):
                     x_ref_f = np.array([x_ref[-1], y_ref[-1], z_ref[-1],0,0,0])
                 )
 
-            if time_since_start >=  20:
+            elif time_since_start >=  LAND_TIME:
                 x_ref = [ 0.0 for i in range(self.N)]
                 y_ref = [ 0.0 for i in range(self.N)]
                 z_ref = [ 0.05 for i in range(self.N)]
@@ -275,6 +281,14 @@ class SimpleMPC(Node):
                 ref_pose.pose.position.y = y_ref[0]
                 ref_pose.pose.position.z = z_ref[0]
                 self.ref_pub.publish(ref_pose) 
+
+            else:
+                ref_pose = PoseStamped()
+                ref_pose.pose.position.x = 0.0
+                ref_pose.pose.position.y = 0.0
+                ref_pose.pose.position.z = self.target_height
+                self.ref_pub.publish(ref_pose) 
+
 
         if not self.ready_to_solve:
             self.logger.warn("Not ready to solve!")
