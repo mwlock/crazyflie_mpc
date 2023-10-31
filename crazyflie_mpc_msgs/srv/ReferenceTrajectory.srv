@@ -1,0 +1,5 @@
+float32 dt
+float32 t
+int32 n
+---
+geometry_msgs/PoseArray poses

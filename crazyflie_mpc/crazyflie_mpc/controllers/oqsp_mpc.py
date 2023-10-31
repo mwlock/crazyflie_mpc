@@ -176,10 +176,12 @@ class oqsp_MPC():
         ctrl = res.x[-self.N*self.nu:-(self.N-1)*self.nu]
         # x0 = self.Ad@self.x0 + self.Bd@ctrl
         x0 = 0
+        
+        x_pred = res.x[:self.N*self.nx].reshape(self.N, self.nx).T
 
         if verbose:
             self.logger.info("MPC solve time: {}".format(res.info.solve_time))
             self.logger.info("MPC solve frequency: {}".format(1/res.info.solve_time))
 
-        return x0, ctrl, res.info.solve_time
+        return x_pred, ctrl, res.info.solve_time
 
