@@ -20,6 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from abc import ABC, abstractmethod
+
 from crazyflie_mpc.controllers.oqsp_mpc import oqsp_MPC
 from crazyflie_mpc.controller_utils import *
 
@@ -74,8 +76,7 @@ MASS = 0.074                # big crazyflie with mocap deck
 REFERENCE_FOLLOWING_TIME = 10.0
 LAND_TIME = 20.0
 
-
-class SimpleMPC(Node):
+class SimpleMPC(ABC, Node):
     
     def time(self):
         """Returns the current time in seconds."""
@@ -113,7 +114,7 @@ class SimpleMPC(Node):
         self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
 
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
-        self.path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
+        self.mpc_path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
         self.cmd_position_pub   = self.create_publisher(Position, 'cmd_position', 10)
         self.ref_pub            = self.create_publisher(PoseStamped, 'ref_pose', 10)
         self.u_pub              = self.create_publisher(PoseStamped, 'acc_u', 10)
@@ -121,10 +122,6 @@ class SimpleMPC(Node):
         # Clients
         self.take_off_client    = self.create_client(Takeoff, "takeoff")
         self.land_client        = self.create_client(Land, "land")
-        self.get_ref_client     = self.create_client(ReferenceTrajectory, "reference_trajectory")
-        
-        while not self.get_ref_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("Reference trajectory service not available, waiting...")
         
         self.last_odom = Odometry()
         self.last_pose = PoseStamped()
@@ -164,7 +161,7 @@ class SimpleMPC(Node):
         
         # Create timer to run MPC
         self.timer_period = self.dt
-        self.timer = self.create_timer(self.timer_period, self.timer_callback, clock=self.get_clock())
+        self.control_timer = self.create_timer(self.timer_period, self.control_timer_callback, clock=self.get_clock())
         self.logger.info("Timer created.")
         self.ready_to_solve = False
         self.start_time = -1
@@ -224,7 +221,7 @@ class SimpleMPC(Node):
             pose.pose.position.z = x[2,i]
             path_msg.poses.append(pose)
             
-        self.path_pub.publish(path_msg)      
+        self.mpc_path_pub.publish(path_msg)      
         
     def publish_cmd_position(self, x,y,z,yaw):
         
@@ -238,6 +235,7 @@ class SimpleMPC(Node):
         
         self.cmd_position_pub.publish(cmd_position)
         
+    @abstractmethod
     def get_reference_trajectory(self, t, N = 100):
         """
         Get a reference trajectory from the reference trajectory service.
@@ -249,31 +247,33 @@ class SimpleMPC(Node):
         N : int
             The number of steps to look ahead.
         """
+        pass 
+        # request = ReferenceTrajectory.Request()
+        # request.dt = self.dt
+        # request.t = t
+        # request.n = N
         
-        request = ReferenceTrajectory.Request()
-        request.dt = self.dt
-        request.t = t
-        request.n = N
+        # self.logger.info(f"Requesting reference trajectory at time {t} with {N} steps.")
+        # future = self.get_ref_client.call_async(request)
+        # self.logger.info("Waiting for reference trajectory service to return.")
+        # rclpy.spin_until_future_complete(self.get, future, timeout_sec=5.0)
+        # self.logger.info("Reference trajectory service returned.")
+        # response = future.result()    
         
-        self.logger.info(f"Requesting reference trajectory at time {t} with {N} steps.")
-        future = self.get_ref_client.call_async(request)
-        self.logger.info("Waiting for reference trajectory service to return.")
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-        self.logger.info("Reference trajectory service returned.")
-        response = future.result()    
+        # self.logger.info(f"Type of response: {type(response)}")
         
-        self.logger.info(f"Type of response: {type(response)}")
+        # poses = response.poses
         
-        poses = response.poses
+        # x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(poses.position.x, poses.position.y, poses.position.z)))
+        # x_ref_f = np.array([x_ref[-1][0], x_ref[-1][1], x_ref[-1][2],0,0,0])
         
-        x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(poses.position.x, poses.position.y, poses.position.z)))
-        x_ref_f = np.array([x_ref[-1][0], x_ref[-1][1], x_ref[-1][2],0,0,0])
-        
-        return x_ref, x_ref_f
+        # return x_ref, x_ref_f
         
         
-    def timer_callback(self):
+    def control_timer_callback(self):
         """Callback for the timer."""
+        
+        # self.logger.info("Timer callback.")
 
         if self.start_time ==-1:
             self.start_time = self.time()
@@ -293,29 +293,13 @@ class SimpleMPC(Node):
             time_since_start = self.time() - self.start_time
             if time_since_start >=  REFERENCE_FOLLOWING_TIME and time_since_start <  LAND_TIME :
 
-                # Create reference for x and y with N steps look ahead, with circle defined by sin(x * 2 * pi * (1/5))
-                # time_references = [(time_since_start + i*self.dt) for i in range(self.N)]
                 x_ref, x_ref_f = self.get_reference_trajectory(t = time_since_start - REFERENCE_FOLLOWING_TIME, N = self.N)
                 
-                # x_ref = [ 0.0 for i in range(self.N)]
-                # y_ref = [ 0.0 for i in range(self.N)]
-                # x_ref = [(0.5*math.sin(t*2*math.pi*(1/10))) for t in time_references]
-                # y_ref = [(0.5*math.cos(t*2*math.pi*(1/10))) for t in time_references]
-                # z_ref = [ self.target_height for i in range(self.N)]
-                # z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/5))) for t in time_references]
-
                 ref_pose = PoseStamped()
-                ref_pose.pose.position.x = x_ref[0]
-                ref_pose.pose.position.y = y_ref[0]
-                ref_pose.pose.position.z = z_ref[0]
+                ref_pose.pose.position.x = x_ref[0][0]
+                ref_pose.pose.position.y = x_ref[0][1]
+                ref_pose.pose.position.z = x_ref[0][2]
                 self.ref_pub.publish(ref_pose)    
-                
-                self.get_logger().info(f"Reference: {x_ref[0]} {y_ref[0]} {z_ref[0]}")
-
-                # self.mpc_planner.set_reference_trajectory(
-                #     x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(x_ref, y_ref, z_ref))),
-                #     x_ref_f = np.array([x_ref[-1], y_ref[-1], z_ref[-1],0,0,0])
-                # )
                 
                 self.mpc_planner.set_reference_trajectory(
                     x_ref = x_ref,
