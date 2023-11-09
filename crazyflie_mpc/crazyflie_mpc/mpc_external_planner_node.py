@@ -73,9 +73,6 @@ MASS = 0.074                # big crazyflie with mocap deck
 # THRUST_OFFSET = 49000   # simulation
 # MASS = 0.04            # simulation
 
-REFERENCE_FOLLOWING_TIME = 10.0
-LAND_TIME = 20.0
-
 class SimpleMPC(ABC, Node):
     
     def time(self):
@@ -142,6 +139,9 @@ class SimpleMPC(ABC, Node):
         self.init_mpc_planner()    
         self.logger.info("MPC controller initialized.")
         self.target_height = TARGET_HEIGHT
+        
+        self.REFERENCE_FOLLOWING_TIME = 10.0
+        self.LAND_TIME = 20.0
         
         # Takeoff
         # self.logger.info("Taking off.")
@@ -291,9 +291,9 @@ class SimpleMPC(ABC, Node):
         # Follow circle after 10 seconds
         if self.start_time !=-1:
             time_since_start = self.time() - self.start_time
-            if time_since_start >=  REFERENCE_FOLLOWING_TIME and time_since_start <  LAND_TIME :
+            if time_since_start >=  self.REFERENCE_FOLLOWING_TIME and time_since_start <  self.LAND_TIME :
 
-                x_ref, x_ref_f = self.get_reference_trajectory(t = time_since_start - REFERENCE_FOLLOWING_TIME, N = self.N)
+                x_ref, x_ref_f = self.get_reference_trajectory(t = time_since_start - self.REFERENCE_FOLLOWING_TIME, N = self.N)
                 
                 ref_pose = PoseStamped()
                 ref_pose.pose.position.x = x_ref[0][0]
@@ -306,7 +306,7 @@ class SimpleMPC(ABC, Node):
                     x_ref_f = x_ref_f
                 )
 
-            elif time_since_start >=  LAND_TIME:
+            elif time_since_start >=  self.LAND_TIME:
                 x_ref = [ 0.0 for i in range(self.N)]
                 y_ref = [ 0.0 for i in range(self.N)]
                 z_ref = [ 0.05 for i in range(self.N)]
