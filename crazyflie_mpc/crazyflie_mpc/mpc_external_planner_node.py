@@ -22,16 +22,22 @@
 
 from abc import ABC, abstractmethod
 
-from crazyflie_mpc.controllers.oqsp_mpc import oqsp_MPC
-from crazyflie_mpc.controller_utils import *
-
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
 
+from crazyflie_mpc.controllers.oqsp_mpc import oqsp_MPC
+from crazyflie_mpc.controller_utils import *
+
+from crazyflie_interfaces.msg import LogDataGeneric
+
+from crazyflie_interfaces.msg import Position
+from crazyflie_interfaces.srv import Takeoff
+from crazyflie_interfaces.srv import Land
+
+from std_msgs.msg import Float64
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseStamped
-
 from nav_msgs.msg import Odometry
 from nav_msgs.msg import Path
 
@@ -45,12 +51,6 @@ import math
 from math import sin
 from math import cos
 import time
-
-from crazyflie_interfaces.msg import LogDataGeneric
-
-from crazyflie_interfaces.msg import Position
-from crazyflie_interfaces.srv import Takeoff
-from crazyflie_interfaces.srv import Land
 
 from crazyflie_mpc_msgs.srv import ReferenceTrajectory
 
@@ -109,6 +109,7 @@ class SimpleMPC(ABC, Node):
         # Publishers and subscribers
         self.pose_sub           = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
         self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
+        self.current_time_pub   = self.create_publisher(Float64, 'current_time', 1)
 
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
         self.mpc_path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
@@ -138,6 +139,9 @@ class SimpleMPC(ABC, Node):
         
         self.init_mpc_planner()    
         self.logger.info("MPC controller initialized.")
+        
+        self.x_hover = 0.0
+        self.y_hover = 0.0
         self.target_height = TARGET_HEIGHT
         
         self.REFERENCE_FOLLOWING_TIME = 10.0
@@ -290,7 +294,10 @@ class SimpleMPC(ABC, Node):
 
         # Follow circle after 10 seconds
         if self.start_time !=-1:
+            
             time_since_start = self.time() - self.start_time
+            self.current_time_pub.publish(Float64(data=time_since_start - self.REFERENCE_FOLLOWING_TIME))
+            
             if time_since_start >=  self.REFERENCE_FOLLOWING_TIME and time_since_start <  self.LAND_TIME :
 
                 x_ref, x_ref_f = self.get_reference_trajectory(t = time_since_start - self.REFERENCE_FOLLOWING_TIME, N = self.N)
@@ -307,8 +314,8 @@ class SimpleMPC(ABC, Node):
                 )
 
             elif time_since_start >=  self.LAND_TIME:
-                x_ref = [ 0.0 for i in range(self.N)]
-                y_ref = [ 0.0 for i in range(self.N)]
+                x_ref = [ x[0] for i in range(self.N)]
+                y_ref = [ x[1] for i in range(self.N)]
                 z_ref = [ 0.05 for i in range(self.N)]
                 
                 self.mpc_planner.set_reference_trajectory(
@@ -323,9 +330,19 @@ class SimpleMPC(ABC, Node):
                 self.ref_pub.publish(ref_pose) 
 
             else:
+                
+                x_ref = [ self.x_hover for i in range(self.N)]
+                y_ref = [ self.y_hover for i in range(self.N)]
+                z_ref = [ self.target_height for i in range(self.N)]
+                
+                self.mpc_planner.set_reference_trajectory(
+                        x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(x_ref, y_ref, z_ref))),
+                        x_ref_f = np.array([x_ref[-1], y_ref[-1], z_ref[-1],0,0,0])
+                    )
+                
                 ref_pose = PoseStamped()
-                ref_pose.pose.position.x = 0.0
-                ref_pose.pose.position.y = 0.0
+                ref_pose.pose.position.x = self.x_hover
+                ref_pose.pose.position.y = self.y_hover
                 ref_pose.pose.position.z = self.target_height
                 self.ref_pub.publish(ref_pose) 
 
