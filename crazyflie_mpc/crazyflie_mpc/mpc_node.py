@@ -45,14 +45,17 @@ from math import cos
 import time
 
 from crazyflie_interfaces.msg import LogDataGeneric
+from crazyflie_interfaces.msg import VelocityWorld
+from crazyflie_interfaces.msg import FullState
 
 from crazyflie_interfaces.msg import Position
 from crazyflie_interfaces.srv import Takeoff
 from crazyflie_interfaces.srv import Land
 
 from copy import deepcopy
-
 from scipy import sparse
+import rowan
+
 
 
 TARGET_HEIGHT = 0.5
@@ -109,6 +112,9 @@ class SimpleMPC(Node):
         self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
 
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
+        self.cmd_vel_world_pub  = self.create_publisher(VelocityWorld, 'cmd_velocity_world', 1)
+        self.cmd_full_state_pub = self.create_publisher(FullState, 'cmd_full_state', 1)
+        
         self.path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
         self.cmd_position_pub   = self.create_publisher(Position, 'cmd_position', 10)
         self.ref_pub            = self.create_publisher(PoseStamped, 'ref_pose', 10)
@@ -295,8 +301,9 @@ class SimpleMPC(Node):
         
         self.mpc_planner.set_initial_state(x)
 
-        x_pred,u, solve_time = self.mpc_planner.solve(verbose=False)
+        x_pred,u, u2, solve_time = self.mpc_planner.solve(verbose=False)
         self.last_u = u
+        
         if solve_time >= self.dt:
             self.logger.warn(f"========================Solve time exceeds control rate {1/solve_time} ========================")
         
@@ -307,6 +314,19 @@ class SimpleMPC(Node):
         self.u_pub.publish(u_acc)
 
         # self.publish_predicted_path(x_pred)
+        # self.logger.info(f"Predicted state: {x_pred[:,0]}")
+        
+        px_pred = x_pred[0,0]
+        py_pred = x_pred[1,0]
+        pz_pred = x_pred[2,0]
+        
+        vx_pred = x_pred[3,0]
+        vy_pred = x_pred[4,0]
+        vz_pred = x_pred[5,0]
+                
+        
+        # self.logger.info(f"Predicted position: {px_pred}, {py_pred}, {pz_pred}")
+        # self.logger.info(f"Predicted velocity: {vx_pred}, {vy_pred}, {vz_pred}")
                
         if self.unlocked_counter < 1:
             self.emergency_stop()
@@ -314,21 +334,70 @@ class SimpleMPC(Node):
             self.logger.info(f"Unlocked counter {self.unlocked_counter}")
             return
         
-        euler = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
-        roll, pitch, yaw   = euler
-
+        roll, pitch, yaw = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
         thrust_des, roll_des, pitch_des = acc2TRP([u[0],u[1],u[2]], yaw, self.mass, THRUST_OFFSET)
         thrust_des = T2cmd(thrust_des) 
-        
+        yaw_des     = 0.0
         roll_des    = math.degrees(roll_des)
         pitch_des   = math.degrees(pitch_des)
         
-        twist  = Twist()
-        twist.linear.x = -pitch_des
-        twist.linear.y = roll_des
-        twist.angular.z = 0.0
-        twist.linear.z = thrust_des  
-        self.cmd_vel_pub.publish(twist)
+        self.logger.info(f"Desired roll: {roll_des}, pitch: {pitch_des}, thrust: {thrust_des}")
+        
+        thrust_des_2, roll_des_2, pitch_des_2 = acc2TRP([u2[0],u2[1],u2[2]], yaw, self.mass, THRUST_OFFSET)
+        thrust_des_2 = T2cmd(thrust_des_2)
+        roll_des_2    = math.degrees(roll_des_2)
+        pitch_des_2   = math.degrees(pitch_des_2)
+        
+        self.logger.info(f"Desired roll: {roll_des_2}, pitch: {pitch_des_2}, thrust: {thrust_des_2}")
+        
+        des_roll_rate = (roll_des_2 - roll_des) / self.dt
+        des_pitch_rate = (pitch_des_2 - pitch_des) / self.dt
+        des_yaw_rate = 0.0
+        
+        # cmd_vel_legacy
+        # twist  = Twist()
+        # twist.linear.x = -pitch_des
+        # twist.linear.y = roll_des
+        # twist.angular.z = 0.0
+        # twist.linear.z = 0.0  
+        # # twist.linear.z = thrust_des  
+        # self.cmd_vel_pub.publish(twist)
+        
+        # cmd_velocity_world
+        # cmd_vel_world = VelocityWorld()
+        # cmd_vel_world.vel.x = vx_pred
+        # cmd_vel_world.vel.y = vy_pred
+        # cmd_vel_world.vel.z = vz_pred 
+        # cmd_vel_world.yaw_rate = 0.0
+        # self.cmd_vel_world_pub.publish(cmd_vel_world)        
+        
+        # cmd_full_state_pub
+        cmd_full_state = FullState()
+        
+        cmd_full_state.pose.position.x = px_pred
+        cmd_full_state.pose.position.y = py_pred
+        cmd_full_state.pose.position.z = pz_pred
+        
+        cmd_full_state.twist.linear.x = vx_pred
+        cmd_full_state.twist.linear.y = vy_pred
+        cmd_full_state.twist.linear.z = vz_pred
+        
+        q = rowan.from_euler(roll, pitch, yaw)
+        
+        cmd_full_state.acc.x = u[0]
+        cmd_full_state.acc.y = u[1]
+        cmd_full_state.acc.z = u[2]
+        
+        cmd_full_state.twist.angular.x = - des_pitch_rate
+        cmd_full_state.twist.angular.y = des_roll_rate
+        cmd_full_state.twist.angular.z = 0.0
+        
+        cmd_full_state.pose.orientation.x = q[0]
+        cmd_full_state.pose.orientation.y = q[1]
+        cmd_full_state.pose.orientation.z = q[2]
+        cmd_full_state.pose.orientation.w = q[3]
+           
+        self.cmd_full_state_pub.publish(cmd_full_state)        
         
     def emergency_stop(self):
         

@@ -173,7 +173,8 @@ class oqsp_MPC():
             self.logger.warn("!!!!!!!!!!!!!!!!!!!!!!! OSQP did not solve the problem !!!!!!!!!!!!!!!!!!!!!!!")
             raise ValueError('OSQP did not solve the problem!')
 
-        ctrl = res.x[-self.N*self.nu:-(self.N-1)*self.nu]
+        ctrl = res.x[-self.N*self.nu:-(self.N-1)*self.nu] # u0
+        ctrl_2 = res.x[-(self.N-1)*self.nu:-(self.N-2)*self.nu] # u1
         # x0 = self.Ad@self.x0 + self.Bd@ctrl
         x0 = 0
         
@@ -183,5 +184,5 @@ class oqsp_MPC():
             self.logger.info("MPC solve time: {}".format(res.info.solve_time))
             self.logger.info("MPC solve frequency: {}".format(1/res.info.solve_time))
 
-        return x_pred, ctrl, res.info.solve_time
+        return x_pred, ctrl, ctrl_2, res.info.solve_time
 
