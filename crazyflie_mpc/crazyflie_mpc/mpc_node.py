@@ -114,6 +114,7 @@ class SimpleMPC(Node):
         self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
         self.cmd_vel_world_pub  = self.create_publisher(VelocityWorld, 'cmd_velocity_world', 1)
         self.cmd_full_state_pub = self.create_publisher(FullState, 'cmd_full_state', 1)
+        self.cmd_vel_z_disrance_pub = self.create_publisher(Twist, 'cmd_vel_z_distance', 1)
         
         self.path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
         self.cmd_position_pub   = self.create_publisher(Position, 'cmd_position', 10)
@@ -372,32 +373,41 @@ class SimpleMPC(Node):
         # self.cmd_vel_world_pub.publish(cmd_vel_world)        
         
         # cmd_full_state_pub
-        cmd_full_state = FullState()
+        # cmd_full_state = FullState()
         
-        cmd_full_state.pose.position.x = px_pred
-        cmd_full_state.pose.position.y = py_pred
-        cmd_full_state.pose.position.z = pz_pred
+        # cmd_full_state.pose.position.x = px_pred
+        # cmd_full_state.pose.position.y = py_pred
+        # cmd_full_state.pose.position.z = pz_pred
         
-        cmd_full_state.twist.linear.x = vx_pred
-        cmd_full_state.twist.linear.y = vy_pred
-        cmd_full_state.twist.linear.z = vz_pred
+        # cmd_full_state.twist.linear.x = vx_pred
+        # cmd_full_state.twist.linear.y = vy_pred
+        # cmd_full_state.twist.linear.z = vz_pred
         
-        q = rowan.from_euler(roll, pitch, yaw)
+        # q = rowan.from_euler(roll, pitch, yaw)
         
-        cmd_full_state.acc.x = u[0]
-        cmd_full_state.acc.y = u[1]
-        cmd_full_state.acc.z = u[2]
+        # cmd_full_state.acc.x = u[0]
+        # cmd_full_state.acc.y = u[1]
+        # cmd_full_state.acc.z = u[2]
         
-        cmd_full_state.twist.angular.x = - des_pitch_rate
-        cmd_full_state.twist.angular.y = des_roll_rate
-        cmd_full_state.twist.angular.z = 0.0
+        # cmd_full_state.twist.angular.x = - des_pitch_rate
+        # cmd_full_state.twist.angular.y = des_roll_rate
+        # cmd_full_state.twist.angular.z = 0.0
         
-        cmd_full_state.pose.orientation.x = q[0]
-        cmd_full_state.pose.orientation.y = q[1]
-        cmd_full_state.pose.orientation.z = q[2]
-        cmd_full_state.pose.orientation.w = q[3]
+        # cmd_full_state.pose.orientation.x = q[0]
+        # cmd_full_state.pose.orientation.y = q[1]
+        # cmd_full_state.pose.orientation.z = q[2]
+        # cmd_full_state.pose.orientation.w = q[3]
            
-        self.cmd_full_state_pub.publish(cmd_full_state)        
+        # self.cmd_full_state_pub.publish(cmd_full_state)        
+        
+        # cmd_vel_z_disrance_pub
+        twist  = Twist()
+        twist.linear.x = -pitch_des
+        twist.linear.y = roll_des
+        twist.angular.z = 0.0
+        twist.linear.z = self.target_height
+        self.cmd_vel_z_disrance_pub.publish(twist)
+        
         
     def emergency_stop(self):
         
