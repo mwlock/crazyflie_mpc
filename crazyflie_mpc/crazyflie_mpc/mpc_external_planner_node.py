@@ -66,7 +66,7 @@ FREQUENCY = 40
 # THRUST_OFFSET = 42000       # big crazyflie
 # MASS = 0.054                # big crazyflie
 
-THRUST_OFFSET = 49200       # big crazyflie with mocap deck
+THRUST_OFFSET = 48200       # big crazyflie with mocap deck
 MASS = 0.074                # big crazyflie with mocap deck
 
 # THRUST_OFFSET = 38500   # simulation
@@ -107,19 +107,20 @@ class SimpleMPC(ABC, Node):
         super().__init__('simple_mpc_controller')
         
         # Publishers and subscribers
-        self.pose_sub           = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
-        self.velocity_sub       = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
-        self.current_time_pub   = self.create_publisher(Float64, 'current_time', 1)
+        self.pose_sub               = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
+        self.velocity_sub           = self.create_subscription(LogDataGeneric, 'velocity', self.velocity_callback, 1)
+        self.current_time_pub       = self.create_publisher(Float64, 'current_time', 1)
 
-        self.cmd_vel_pub        = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
+        self.cmd_vel_pub            = self.create_publisher(Twist, 'cmd_vel_legacy', 1)
         self.mpc_path_pub           = self.create_publisher(Path, 'mpc_controller/path', 10)
-        self.cmd_position_pub   = self.create_publisher(Position, 'cmd_position', 10)
-        self.ref_pub            = self.create_publisher(PoseStamped, 'ref_pose', 10)
-        self.u_pub              = self.create_publisher(PoseStamped, 'acc_u', 10)
+        self.cmd_position_pub       = self.create_publisher(Position, 'cmd_position', 10)
+        self.ref_pub                = self.create_publisher(PoseStamped, 'ref_pose', 10)
+        self.u_pub                  = self.create_publisher(PoseStamped, 'acc_u', 10)
+        self.cmd_vel_z_disrance_pub = self.create_publisher(Twist, 'cmd_vel_z_distance', 1)
         
         # Clients
-        self.take_off_client    = self.create_client(Takeoff, "takeoff")
-        self.land_client        = self.create_client(Land, "land")
+        self.take_off_client        = self.create_client(Takeoff, "takeoff")
+        self.land_client            = self.create_client(Land, "land")
         
         self.last_odom = Odometry()
         self.last_pose = PoseStamped()
@@ -143,24 +144,10 @@ class SimpleMPC(ABC, Node):
         self.x_hover = 0.0
         self.y_hover = 0.0
         self.target_height = TARGET_HEIGHT
+        self.land_height = 0.05
         
         self.REFERENCE_FOLLOWING_TIME = 10.0
         self.LAND_TIME = 20.0
-        
-        # Takeoff
-        # self.logger.info("Taking off.")
-        # self.takeoff(self.target_height, duration=2.0)
-        # self.sleep(self.target_height+2.0)
-        
-        # # Hover for 2 seconds
-        # self.logger.info("Hovering.")
-        # self.sleep(2.0)
-        
-        # Land
-        # self.logger.info("Landing.")
-        # self.land(targetHeight=0.03, duration=self.target_height+1.0)
-
-        # # Send zeros to unlock the controller
         self.unlocked_counter = 0
         
         # Create timer to run MPC
@@ -292,6 +279,9 @@ class SimpleMPC(ABC, Node):
             self.zv0
         ])
 
+        # Height control to feed to z_distance controller
+        height_ctrl = 0.0
+
         # Follow circle after 10 seconds
         if self.start_time !=-1:
             
@@ -313,10 +303,13 @@ class SimpleMPC(ABC, Node):
                     x_ref_f = x_ref_f
                 )
 
+                # Account for communication delay
+                height_ctrl = x_ref[20][2]
+
             elif time_since_start >=  self.LAND_TIME:
                 x_ref = [ x[0] for i in range(self.N)]
                 y_ref = [ x[1] for i in range(self.N)]
-                z_ref = [ 0.05 for i in range(self.N)]
+                z_ref = [ self.land_height for i in range(self.N)]
                 
                 self.mpc_planner.set_reference_trajectory(
                         x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(x_ref, y_ref, z_ref))),
@@ -328,6 +321,8 @@ class SimpleMPC(ABC, Node):
                 ref_pose.pose.position.y = y_ref[0]
                 ref_pose.pose.position.z = z_ref[0]
                 self.ref_pub.publish(ref_pose) 
+
+                height_ctrl = z_ref[20]
 
             else:
                 
@@ -346,6 +341,8 @@ class SimpleMPC(ABC, Node):
                 ref_pose.pose.position.z = self.target_height
                 self.ref_pub.publish(ref_pose) 
 
+                height_ctrl = z_ref[20]
+
 
         if not self.ready_to_solve:
             self.logger.warn("Not ready to solve!")
@@ -353,10 +350,22 @@ class SimpleMPC(ABC, Node):
         
         self.mpc_planner.set_initial_state(x)
 
-        x_pred,u, solve_time = self.mpc_planner.solve(verbose=False)
+        # Solve MPC
+        x_pred,u, u2, solve_time = self.mpc_planner.solve(verbose=False)
         self.last_u = u
+
+        px_pred = x_pred[0,0]
+        py_pred = x_pred[1,0]
+        pz_pred = x_pred[2,0]
+        
+        vx_pred = x_pred[3,0]
+        vy_pred = x_pred[4,0]
+        vz_pred = x_pred[5,0]
+
         if solve_time >= self.dt:
             self.logger.warn(f"========================Solve time exceeds control rate {1/solve_time} ========================")
+
+        height_ctrl = pz_pred
         
         u_acc = PoseStamped()
         u_acc.pose.position.x = u[0]
@@ -381,12 +390,22 @@ class SimpleMPC(ABC, Node):
         roll_des    = math.degrees(roll_des)
         pitch_des   = math.degrees(pitch_des)
         
+        # cmd_vel_legacy
+        # twist  = Twist()
+        # twist.linear.x = -pitch_des
+        # twist.linear.y = roll_des
+        # twist.angular.z = 0.0
+        # twist.linear.z = thrust_des  
+        # self.cmd_vel_pub.publish(twist)
+
+        # cmd_vel_z_disrance_pub
         twist  = Twist()
-        twist.linear.x = -pitch_des
+        twist.linear.x = pitch_des
         twist.linear.y = roll_des
         twist.angular.z = 0.0
-        twist.linear.z = thrust_des  
-        self.cmd_vel_pub.publish(twist)
+        twist.linear.z = height_ctrl
+        self.cmd_vel_z_disrance_pub.publish(twist)
+
         
     def emergency_stop(self):
         

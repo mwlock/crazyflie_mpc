@@ -248,6 +248,9 @@ class SimpleMPC(Node):
         ])
 
         # Follow circle after 10 seconds
+
+        height_ctrl = 0.0
+
         if self.start_time !=-1:
             time_since_start = self.time() - self.start_time
             if time_since_start >=  self.REFERENCE_FOLLOWING_TIME and time_since_start <  self.LAND_TIME :
@@ -256,10 +259,10 @@ class SimpleMPC(Node):
                 time_references = [(time_since_start + i*self.dt) for i in range(self.N)]
                 # x_ref = [ 0.0 for i in range(self.N)]
                 # y_ref = [ 0.0 for i in range(self.N)]
-                x_ref = [(0.5*math.sin(t*2*math.pi*(1/10))) for t in time_references]
-                y_ref = [(0.5*math.cos(t*2*math.pi*(1/10))) for t in time_references]
-                z_ref = [ self.target_height for i in range(self.N)]
-                # z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/5))) for t in time_references]
+                x_ref = [(0.5*math.sin(t*2*math.pi*(1/5))) for t in time_references]
+                y_ref = [(0.5*math.cos(t*2*math.pi*(1/5))) for t in time_references]
+                # z_ref = [ self.target_height for i in range(self.N)]
+                z_ref = [(self.target_height +0.25*math.cos(t*2*math.pi*(1/2))) for t in time_references]
 
                 ref_pose = PoseStamped()
                 ref_pose.pose.position.x = x_ref[0]
@@ -272,10 +275,15 @@ class SimpleMPC(Node):
                     x_ref_f = np.array([x_ref[-1], y_ref[-1], z_ref[-1],0,0,0])
                 )
 
+                height_ctrl = z_ref[20]
+
             elif time_since_start >=  self.LAND_TIME:
-                x_ref = [ 0.0 for i in range(self.N)]
-                y_ref = [ 0.0 for i in range(self.N)]
-                z_ref = [ 0.05 for i in range(self.N)]
+
+                land_height = 0.2
+
+                x_ref = [ x[0] for i in range(self.N)]
+                y_ref = [ x[1] for i in range(self.N)]
+                z_ref = [ land_height for i in range(self.N)]
                 
                 self.mpc_planner.set_reference_trajectory(
                         x_ref = np.array(list(([x, y, z, 0, 0 , 0]) for x, y, z in zip(x_ref, y_ref, z_ref))),
@@ -288,12 +296,15 @@ class SimpleMPC(Node):
                 ref_pose.pose.position.z = z_ref[0]
                 self.ref_pub.publish(ref_pose) 
 
+                height_ctrl = z_ref[2]
+
             else:
                 ref_pose = PoseStamped()
                 ref_pose.pose.position.x = 0.0
                 ref_pose.pose.position.y = 0.0
                 ref_pose.pose.position.z = self.target_height
                 self.ref_pub.publish(ref_pose) 
+                height_ctrl = self.target_height
 
 
         if not self.ready_to_solve:
@@ -324,16 +335,15 @@ class SimpleMPC(Node):
         vx_pred = x_pred[3,0]
         vy_pred = x_pred[4,0]
         vz_pred = x_pred[5,0]
-                
-        
+
         # self.logger.info(f"Predicted position: {px_pred}, {py_pred}, {pz_pred}")
         # self.logger.info(f"Predicted velocity: {vx_pred}, {vy_pred}, {vz_pred}")
                
-        if self.unlocked_counter < 1:
-            self.emergency_stop()
-            self.unlocked_counter +=1
-            self.logger.info(f"Unlocked counter {self.unlocked_counter}")
-            return
+        # if self.unlocked_counter < 0:
+        #     self.emergency_stop()
+        #     self.unlocked_counter +=1
+        #     self.logger.info(f"Unlocked counter {self.unlocked_counter}")
+        #     return
         
         roll, pitch, yaw = euler_from_quaternion([ self.quaternion_x, self.quaternion_y, self.quaternion_z, self.quaternion_w])
         thrust_des, roll_des, pitch_des = acc2TRP([u[0],u[1],u[2]], yaw, self.mass, THRUST_OFFSET)
@@ -366,9 +376,9 @@ class SimpleMPC(Node):
         
         # cmd_velocity_world
         # cmd_vel_world = VelocityWorld()
-        # cmd_vel_world.vel.x = vx_pred
-        # cmd_vel_world.vel.y = vy_pred
-        # cmd_vel_world.vel.z = vz_pred 
+        # cmd_vel_world.vel.x = vx_pred * 0
+        # cmd_vel_world.vel.y = vy_pred * 0
+        # cmd_vel_world.vel.z = vz_pred * 0 + 0.5
         # cmd_vel_world.yaw_rate = 0.0
         # self.cmd_vel_world_pub.publish(cmd_vel_world)        
         
@@ -402,10 +412,10 @@ class SimpleMPC(Node):
         
         # cmd_vel_z_disrance_pub
         twist  = Twist()
-        twist.linear.x = -pitch_des
+        twist.linear.x = pitch_des
         twist.linear.y = roll_des
         twist.angular.z = 0.0
-        twist.linear.z = self.target_height
+        twist.linear.z = height_ctrl
         self.cmd_vel_z_disrance_pub.publish(twist)
         
         
