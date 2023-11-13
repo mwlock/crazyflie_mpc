@@ -116,7 +116,7 @@ class SimpleMPC(ABC, Node):
         self.cmd_position_pub       = self.create_publisher(Position, 'cmd_position', 10)
         self.ref_pub                = self.create_publisher(PoseStamped, 'ref_pose', 10)
         self.u_pub                  = self.create_publisher(PoseStamped, 'acc_u', 10)
-        self.cmd_vel_z_disrance_pub = self.create_publisher(Twist, 'cmd_vel_z_distance', 1)
+        self.cmd_vel_z_distance_pub = self.create_publisher(Twist, 'cmd_vel_z_distance', 1)
         
         # Clients
         self.take_off_client        = self.create_client(Takeoff, "takeoff")
@@ -364,8 +364,6 @@ class SimpleMPC(ABC, Node):
 
         if solve_time >= self.dt:
             self.logger.warn(f"========================Solve time exceeds control rate {1/solve_time} ========================")
-
-        height_ctrl = pz_pred
         
         u_acc = PoseStamped()
         u_acc.pose.position.x = u[0]
@@ -398,13 +396,13 @@ class SimpleMPC(ABC, Node):
         # twist.linear.z = thrust_des  
         # self.cmd_vel_pub.publish(twist)
 
-        # cmd_vel_z_disrance_pub
+        # cmd_vel_z_distance_pub
         twist  = Twist()
         twist.linear.x = pitch_des
         twist.linear.y = roll_des
         twist.angular.z = 0.0
         twist.linear.z = height_ctrl
-        self.cmd_vel_z_disrance_pub.publish(twist)
+        self.cmd_vel_z_distance_pub.publish(twist)
 
         
     def emergency_stop(self):

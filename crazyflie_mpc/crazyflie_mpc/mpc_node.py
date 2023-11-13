@@ -279,10 +279,10 @@ class SimpleMPC(Node):
 
             elif time_since_start >=  self.LAND_TIME:
 
-                land_height = 0.2
+                land_height = 0.05
 
-                x_ref = [ x[0] for i in range(self.N)]
-                y_ref = [ x[1] for i in range(self.N)]
+                x_ref = [ 0.0 for i in range(self.N)]
+                y_ref = [ 0.0 for i in range(self.N)]
                 z_ref = [ land_height for i in range(self.N)]
                 
                 self.mpc_planner.set_reference_trajectory(
@@ -335,6 +335,9 @@ class SimpleMPC(Node):
         vx_pred = x_pred[3,0]
         vy_pred = x_pred[4,0]
         vz_pred = x_pred[5,0]
+
+        if time_since_start >=  self.LAND_TIME:
+            height_ctrl = x_pred[2,10]
 
         # self.logger.info(f"Predicted position: {px_pred}, {py_pred}, {pz_pred}")
         # self.logger.info(f"Predicted velocity: {vx_pred}, {vy_pred}, {vz_pred}")
