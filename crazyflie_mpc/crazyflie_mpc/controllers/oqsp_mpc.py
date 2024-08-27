@@ -63,21 +63,12 @@ class oqsp_MPC():
         self.Ac[1, 4] = 1   # y
         self.Ac[2, 5] = 1   # z
 
-        # self.Ac[5, 5] = 1 # disturbance
-
-
         self.Bc[3, 0] = 1   # vx 
         self.Bc[4, 1] = 1   # vy
         self.Bc[5, 2] = 1   # vz
 
-
         continous_system     = control.StateSpace(self.Ac, self.Bc, ca.DM.eye(6), ca.DM.zeros(6, 3))
         self.discrete_system = continous_system.sample(self.dt)
-
-        # print(f"continous_system:\n {continous_system}")
-        # print(f"discrete_system:\n {discrete_system}")
-        # print(f"discrete_system_disturbance:\n {discrete_system_disturbance}")
-
 
         self.Ad = sparse.csc_matrix(self.discrete_system.A)
         self.Bd = sparse.csc_matrix(self.discrete_system.B)
@@ -86,9 +77,6 @@ class oqsp_MPC():
 
         self.nx = nx
         self.nu = nu
-
-        print(f"self.nx: {self.nx}")
-        print(f"nu: {nu}")
 
         # Constraints
 
@@ -144,7 +132,6 @@ class oqsp_MPC():
         self.prob.setup(
             P, q, A, self.l, self.u, 
             warm_start=True,
-            verbose=False
             )
         
     def set_reference_trajectory(self, x_ref, x_ref_f):
@@ -164,7 +151,7 @@ class oqsp_MPC():
         self.u[:self.nx] = -x0
         self.prob.update(l=self.l, u=self.u)
 
-    def solve(self, verbose=False):
+    def solve(self):
         """ Solve the optimization problem. """
         
         res = self.prob.solve()
@@ -175,14 +162,8 @@ class oqsp_MPC():
 
         ctrl = res.x[-self.N*self.nu:-(self.N-1)*self.nu] # u0
         ctrl_2 = res.x[-(self.N-1)*self.nu:-(self.N-2)*self.nu] # u1
-        # x0 = self.Ad@self.x0 + self.Bd@ctrl
-        x0 = 0
         
         x_pred = res.x[:self.N*self.nx].reshape(self.N, self.nx).T
-
-        if verbose:
-            self.logger.info("MPC solve time: {}".format(res.info.solve_time))
-            self.logger.info("MPC solve frequency: {}".format(1/res.info.solve_time))
 
         return x_pred, ctrl, ctrl_2, res.info.solve_time
 
