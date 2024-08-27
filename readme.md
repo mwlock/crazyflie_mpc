@@ -4,7 +4,8 @@ ROS 2 package implementing a Model Predictive Control (MPC) system for precise a
 
 ## Dependencies
 
-Assumes you have a working installation of [Crazyswarm2](https://github.com/IMRCLab/crazyswarm2).
+The official [Crazyswarm2](https://github.com/IMRCLab/crazyswarm2) package had not implemented everything needed for my simulation purposes. 
+Therefore, this controller is built against my own fork of the Crazyswarm2 package, which can be found [here](https://github.com/mwlock/crazyswarm2).
 
 ## Installation
 
