@@ -417,9 +417,9 @@ class SimpleMPC(ABC, Node):
 def main(args=None):
     
     rclpy.init(args=args)
-    minimal_publisher = SimpleMPC()
-    rclpy.spin(minimal_publisher)
-    minimal_publisher.destroy_node()
+    mpc_node = SimpleMPC()
+    rclpy.spin(mpc_node)
+    mpc_node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
